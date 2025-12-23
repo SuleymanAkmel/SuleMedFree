@@ -1,0 +1,7 @@
+{
+  "name": "MedFree - Open Medical Learning",
+  "description": "A free, AI-powered medical education platform providing board-style MCQs, mnemonics, and videos for medical students worldwide.",
+  "requestFramePermissions": [],
+  "offline_support": true,
+  "theme_color": "#2563eb"
+}
