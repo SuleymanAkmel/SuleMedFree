@@ -19,6 +19,8 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<NoteSection[]>([]);
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+
   const [stats, setStats] = useState<UserStats>(() => {
     const saved = localStorage.getItem('medfree_stats_v2');
     return saved ? JSON.parse(saved) : {
@@ -37,11 +39,13 @@ const App: React.FC = () => {
   const handleSystemSelect = (system: MedicalCategory) => {
     setSelectedSystem(system);
     setView('subjects');
+    setApiError(null);
   };
 
   const startMode = async (subject: MedicalSubject, mode: StudyMode) => {
     if (!selectedSystem) return;
     setLoading(true);
+    setApiError(null);
     setSelectedSubject(subject);
     setStudyMode(mode);
 
@@ -65,8 +69,14 @@ const App: React.FC = () => {
         });
         setView('quiz');
       }
-    } catch (err) {
-      alert("Error loading content. Please check connection.");
+    } catch (err: any) {
+      if (err.message === "API_KEY_MISSING") {
+        setApiError("Your API key is missing! Please add 'API_KEY' to your Vercel Environment Variables.");
+      } else if (err.message.includes("permission denied") || err.message.includes("403")) {
+        setApiError("Permission Denied: Ensure your API Key is valid and billing is active in Google AI Studio.");
+      } else {
+        setApiError("Connection Error: Check your internet or API key limits.");
+      }
     } finally {
       setLoading(false);
     }
@@ -106,30 +116,43 @@ const App: React.FC = () => {
     setSelectedSubject(null);
     setStudyMode(null);
     setSession(null);
+    setApiError(null);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
       <Navbar onHomeClick={reset} stats={stats} />
       
-      <main className="flex-grow container mx-auto px-4 py-6 max-w-5xl">
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-6"></div>
-            <h2 className="text-xl font-bold text-slate-800 animate-pulse">Consulting Expert Sources...</h2>
-            <p className="text-slate-500 max-w-xs mt-2 italic">Organizing high-yield content for your {selectedSystem} session.</p>
+      <main className="flex-grow container mx-auto px-4 py-8 max-w-5xl">
+        {apiError && (
+          <div className="bg-rose-50 border-2 border-rose-200 p-8 rounded-[2rem] text-center max-w-lg mx-auto animate-in slide-in-from-top-4">
+            <div className="text-4xl mb-4">⚠️</div>
+            <h2 className="text-xl font-bold text-rose-900 mb-2">Access Issue</h2>
+            <p className="text-rose-700 text-sm mb-6 leading-relaxed">{apiError}</p>
+            <button onClick={reset} className="bg-rose-600 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-rose-100">Try Again</button>
           </div>
         )}
 
-        {!loading && view === 'dashboard' && <Dashboard onStartQuiz={handleSystemSelect} stats={stats} />}
-        {!loading && view === 'subjects' && selectedSystem && (
+        {loading && !apiError && (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <div className="relative">
+              <div className="w-20 h-20 border-[6px] border-blue-100 rounded-full"></div>
+              <div className="w-20 h-20 border-[6px] border-blue-600 border-t-transparent rounded-full animate-spin absolute top-0"></div>
+            </div>
+            <h2 className="text-2xl font-black text-slate-900 mt-8 tracking-tight">Curating Expertise...</h2>
+            <p className="text-slate-500 max-w-xs mt-3 text-sm font-medium italic">Preparing board-level data for the {selectedSystem} {selectedSubject} module.</p>
+          </div>
+        )}
+
+        {!loading && !apiError && view === 'dashboard' && <Dashboard onStartQuiz={handleSystemSelect} stats={stats} />}
+        {!loading && !apiError && view === 'subjects' && selectedSystem && (
           <SubjectSelector 
             system={selectedSystem} 
             onSelectMode={startMode} 
             stats={stats} 
           />
         )}
-        {!loading && view === 'study' && (
+        {!loading && !apiError && view === 'study' && (
           <StudyView 
             mode={studyMode!} 
             notes={notes} 
@@ -137,7 +160,7 @@ const App: React.FC = () => {
             onExit={() => setView('subjects')} 
           />
         )}
-        {!loading && view === 'quiz' && session && (
+        {!loading && !apiError && view === 'quiz' && session && (
           <QuizCard 
             question={session.questions[session.currentIndex]}
             totalQuestions={session.questions.length}
@@ -147,7 +170,7 @@ const App: React.FC = () => {
             userAnswer={session.userAnswers[session.currentIndex]}
           />
         )}
-        {!loading && view === 'results' && session && (
+        {!loading && !apiError && view === 'results' && session && (
           <ResultScreen 
             session={session} 
             onRestart={() => startMode(selectedSubject!, 'Quiz')} 
@@ -155,6 +178,10 @@ const App: React.FC = () => {
           />
         )}
       </main>
+      
+      <footer className="py-6 text-center text-slate-300 text-[10px] font-bold uppercase tracking-[0.2em]">
+        MedFree Open Education Project • NIME Master Syllabus
+      </footer>
     </div>
   );
 };
