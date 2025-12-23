@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { generateQuestions, generateNotes, generateFlashcards } from './services/geminiService';
 import { Question, MedicalCategory, MedicalSubject, StudyMode, QuizSession, UserStats, NoteSection, Flashcard } from './types';
@@ -19,10 +18,10 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<NoteSection[]>([]);
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [loading, setLoading] = useState(false);
-  const [apiError, setApiError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<string | null>(null);
 
   const [stats, setStats] = useState<UserStats>(() => {
-    const saved = localStorage.getItem('medfree_stats_v2');
+    const saved = localStorage.getItem('medfree_stats_v3');
     return saved ? JSON.parse(saved) : {
       totalQuestionsAnswered: 0,
       correctAnswers: 0,
@@ -33,19 +32,19 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    localStorage.setItem('medfree_stats_v2', JSON.stringify(stats));
+    localStorage.setItem('medfree_stats_v3', JSON.stringify(stats));
   }, [stats]);
 
   const handleSystemSelect = (system: MedicalCategory) => {
     setSelectedSystem(system);
     setView('subjects');
-    setApiError(null);
+    setErrorType(null);
   };
 
   const startMode = async (subject: MedicalSubject, mode: StudyMode) => {
     if (!selectedSystem) return;
     setLoading(true);
-    setApiError(null);
+    setErrorType(null);
     setSelectedSubject(subject);
     setStudyMode(mode);
 
@@ -70,44 +69,13 @@ const App: React.FC = () => {
         setView('quiz');
       }
     } catch (err: any) {
-      if (err.message === "API_KEY_MISSING") {
-        setApiError("Your API key is missing! Please add 'API_KEY' to your Vercel Environment Variables.");
-      } else if (err.message.includes("permission denied") || err.message.includes("403")) {
-        setApiError("Permission Denied: Ensure your API Key is valid and billing is active in Google AI Studio.");
-      } else {
-        setApiError("Connection Error: Check your internet or API key limits.");
-      }
+      console.error("Caught error in App:", err.message);
+      if (err.message === "API_KEY_MISSING") setErrorType("MISSING");
+      else if (err.message === "PERMISSION_DENIED") setErrorType("DENIED");
+      else setErrorType("GENERIC");
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleAnswer = (answerIndex: number) => {
-    if (!session) return;
-    const isCorrect = answerIndex === session.questions[session.currentIndex].correctAnswer;
-    const newAnswers = [...session.userAnswers];
-    newAnswers[session.currentIndex] = answerIndex;
-    setSession({ ...session, score: isCorrect ? session.score + 1 : session.score, userAnswers: newAnswers });
-  };
-
-  const handleNext = () => {
-    if (!session) return;
-    if (session.currentIndex < session.questions.length - 1) {
-      setSession({ ...session, currentIndex: session.currentIndex + 1 });
-    } else {
-      completeQuiz();
-    }
-  };
-
-  const completeQuiz = () => {
-    if (!session || !selectedSubject) return;
-    const newStats = { ...stats };
-    newStats.totalQuestionsAnswered += session.questions.length;
-    newStats.correctAnswers += session.score;
-    const key = `${selectedSystem}-${selectedSubject}`;
-    newStats.subjectProgress[key] = (newStats.subjectProgress[key] || 0) + session.questions.length;
-    setStats(newStats);
-    setView('results');
   };
 
   const reset = () => {
@@ -116,43 +84,51 @@ const App: React.FC = () => {
     setSelectedSubject(null);
     setStudyMode(null);
     setSession(null);
-    setApiError(null);
+    setErrorType(null);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
       <Navbar onHomeClick={reset} stats={stats} />
       
-      <main className="flex-grow container mx-auto px-4 py-8 max-w-5xl">
-        {apiError && (
-          <div className="bg-rose-50 border-2 border-rose-200 p-8 rounded-[2rem] text-center max-w-lg mx-auto animate-in slide-in-from-top-4">
-            <div className="text-4xl mb-4">⚠️</div>
-            <h2 className="text-xl font-bold text-rose-900 mb-2">Access Issue</h2>
-            <p className="text-rose-700 text-sm mb-6 leading-relaxed">{apiError}</p>
-            <button onClick={reset} className="bg-rose-600 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-rose-100">Try Again</button>
-          </div>
-        )}
-
-        {loading && !apiError && (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="relative">
-              <div className="w-20 h-20 border-[6px] border-blue-100 rounded-full"></div>
-              <div className="w-20 h-20 border-[6px] border-blue-600 border-t-transparent rounded-full animate-spin absolute top-0"></div>
+      <main className="flex-grow container mx-auto px-4 py-6 max-w-5xl">
+        {errorType && (
+          <div className="max-w-md mx-auto mt-12 bg-white rounded-[2.5rem] border-2 border-slate-100 p-10 text-center shadow-2xl">
+            <div className="w-20 h-20 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center text-4xl mx-auto mb-6">⚠️</div>
+            <h2 className="text-2xl font-black text-slate-900 mb-4">
+              {errorType === 'MISSING' ? 'Key Missing' : errorType === 'DENIED' ? 'Access Blocked' : 'System Error'}
+            </h2>
+            <p className="text-slate-600 mb-8 leading-relaxed">
+              {errorType === 'MISSING' 
+                ? "You haven't added your API Key to Vercel yet. Go to Settings -> Environment Variables and add API_KEY." 
+                : errorType === 'DENIED' 
+                ? "The API Key you provided was rejected. Check if it's copied correctly or if you've hit your free limit." 
+                : "The connection failed. Please check your internet or try again later."}
+            </p>
+            <div className="space-y-3">
+               <button onClick={reset} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-black transition-all">Try Again</button>
+               <a href="https://vercel.com" target="_blank" className="block w-full py-4 bg-blue-50 text-blue-600 rounded-2xl font-bold text-sm">Open Vercel Dashboard</a>
             </div>
-            <h2 className="text-2xl font-black text-slate-900 mt-8 tracking-tight">Curating Expertise...</h2>
-            <p className="text-slate-500 max-w-xs mt-3 text-sm font-medium italic">Preparing board-level data for the {selectedSystem} {selectedSubject} module.</p>
           </div>
         )}
 
-        {!loading && !apiError && view === 'dashboard' && <Dashboard onStartQuiz={handleSystemSelect} stats={stats} />}
-        {!loading && !apiError && view === 'subjects' && selectedSystem && (
+        {loading && !errorType && (
+          <div className="flex flex-col items-center justify-center py-32 text-center">
+            <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-8"></div>
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight animate-pulse">Consulting AI Expert...</h2>
+            <p className="text-slate-500 mt-4 max-w-xs mx-auto italic">Downloading the latest clinical guides for {selectedSystem}.</p>
+          </div>
+        )}
+
+        {!loading && !errorType && view === 'dashboard' && <Dashboard onStartQuiz={handleSystemSelect} stats={stats} />}
+        {!loading && !errorType && view === 'subjects' && selectedSystem && (
           <SubjectSelector 
             system={selectedSystem} 
             onSelectMode={startMode} 
             stats={stats} 
           />
         )}
-        {!loading && !apiError && view === 'study' && (
+        {!loading && !errorType && view === 'study' && (
           <StudyView 
             mode={studyMode!} 
             notes={notes} 
@@ -160,17 +136,34 @@ const App: React.FC = () => {
             onExit={() => setView('subjects')} 
           />
         )}
-        {!loading && !apiError && view === 'quiz' && session && (
+        {!loading && !errorType && view === 'quiz' && session && (
           <QuizCard 
             question={session.questions[session.currentIndex]}
             totalQuestions={session.questions.length}
             currentIndex={session.currentIndex}
-            onAnswer={handleAnswer}
-            onNext={handleNext}
+            onAnswer={(i) => {
+              const isCorrect = i === session.questions[session.currentIndex].correctAnswer;
+              const newAnswers = [...session.userAnswers];
+              newAnswers[session.currentIndex] = i;
+              setSession({ ...session, score: isCorrect ? session.score + 1 : session.score, userAnswers: newAnswers });
+            }}
+            onNext={() => {
+              if (session.currentIndex < session.questions.length - 1) {
+                setSession({ ...session, currentIndex: session.currentIndex + 1 });
+              } else {
+                const newStats = { ...stats };
+                newStats.totalQuestionsAnswered += session.questions.length;
+                newStats.correctAnswers += session.score;
+                const key = `${selectedSystem}-${selectedSubject}`;
+                newStats.subjectProgress[key] = (newStats.subjectProgress[key] || 0) + session.questions.length;
+                setStats(newStats);
+                setView('results');
+              }
+            }}
             userAnswer={session.userAnswers[session.currentIndex]}
           />
         )}
-        {!loading && !apiError && view === 'results' && session && (
+        {!loading && !errorType && view === 'results' && session && (
           <ResultScreen 
             session={session} 
             onRestart={() => startMode(selectedSubject!, 'Quiz')} 
@@ -178,10 +171,6 @@ const App: React.FC = () => {
           />
         )}
       </main>
-      
-      <footer className="py-6 text-center text-slate-300 text-[10px] font-bold uppercase tracking-[0.2em]">
-        MedFree Open Education Project • NIME Master Syllabus
-      </footer>
     </div>
   );
 };
